@@ -21,5 +21,6 @@
   </ItemGroup>
   <ItemGroup>
     <Text Include="input.txt" />
+    <Text Include="boundary_conditions.txt" />
   </ItemGroup>
 </Project>
