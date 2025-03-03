@@ -38,54 +38,35 @@ bool isInsideTShape(double x, double y) {
     return false;
 }
 
-int _u(float x, float y) {
-    return (x + y);
-}
+void createMatrix(const std::vector<Node>& nodes, std::vector<std::vector<int>>& matrix) {
+    size_t size = nodes.size();
 
-void createMatrix(const std::vector<Node>& nodes, int minX, int maxX, int minY, int maxY) {
-    for (size_t i = 0; i < nodes.size(); ++i) {
-        int connections = 0;
-        std::vector<int> neighbors;
+    // Инициализация матрицы нулями
+    matrix.resize(size, std::vector<int>(size, 0));
 
-        // Проверка соседей в пределах 2 единиц по x и y
-        for (size_t j = 0; j < nodes.size(); ++j) {
-            if (i != j) { // Пропустить сам узел
-                // Проверка, что узел не DUMMY
-                if (nodes[i].type != DUMMY && nodes[j].type != DUMMY) {
-                    // Проверка соседей по горизонтали
+    for (size_t i = 0; i < size; ++i) {
+        if (nodes[i].type != DUMMY) {
+            // Узел связан сам с собой
+            matrix[i][i] = 1;
+
+            // Проверка соседей в пределах 2 единиц по x и y
+            for (size_t j = 0; j < size; ++j) {
+                if (i != j && nodes[j].type != DUMMY) {
+                    // Проверка на горизонтальную связь
                     if (nodes[i].y == nodes[j].y && std::abs(nodes[i].x - nodes[j].x) <= 2.0) {
-                        // Проверка на границы
-                        if (nodes[j].x >= minX && nodes[j].x <= maxX && nodes[j].y >= minY && nodes[j].y <= maxY) {
-                            connections++;
-                            neighbors.push_back(j);
-                        }
+                        matrix[i][j] = 1; // Связь с соседом
                     }
-                    // Проверка соседей по вертикали
+                    // Проверка на вертикальную связь
                     else if (nodes[i].x == nodes[j].x && std::abs(nodes[i].y - nodes[j].y) <= 2.0) {
-                        // Проверка на границы
-                        if (nodes[j].x >= minX && nodes[j].x <= maxX && nodes[j].y >= minY && nodes[j].y <= maxY) {
-                            connections++;
-                            neighbors.push_back(j);
-                        }
+                        matrix[i][j] = 1; // Связь с соседом
                     }
                 }
             }
         }
-
-        // Вывод информации о текущем узле, его координатах и соседях
-        std::cout << "Узел " << i
-            << " (тип: " << (nodes[i].type == INTERNAL ? "INTERNAL" : (nodes[i].type == BOUNDARY ? "BOUNDARY" : "DUMMY"))
-            << ", координаты: (" << nodes[i].x << ", " << nodes[i].y << ")) "
-            << "имеет " << connections << " соседей: ";
-        for (int neighbor : neighbors) {
-            std::cout << neighbor << " (координаты: (" << nodes[neighbor].x << ", " << nodes[neighbor].y << ")) ";
-        }
-        std::cout << std::endl;
     }
 }
 
-
-void saveMatrixToFile(const std::vector<std::vector<double>>& matrix, const std::string& filename) {
+void saveMatrixToFile(const std::vector<std::vector<int>>& matrix, const std::string& filename) {
     std::ofstream file(filename);
     if (file.is_open()) {
         for (const auto& row : matrix) {
@@ -97,10 +78,41 @@ void saveMatrixToFile(const std::vector<std::vector<double>>& matrix, const std:
         file.close();
     }
     else {
-
         std::cerr << "Ошибка открытия файла!" << std::endl;
     }
-}int main() {
+}
+
+int countOnes(const std::vector<std::vector<int>>& matrix) {
+    int count = 0;
+    for (const auto& row : matrix) {
+        for (const auto& value : row) {
+            if (value == 1) {
+                count++;
+            }
+        }
+    }
+    return count;
+}
+
+void printNodes(const std::vector<Node>& nodes) {
+    std::cout << "Список узлов с координатами:" << std::endl;
+        for (size_t i = 0; i < nodes.size(); ++i) {
+            std::cout << "Узел " << i + 1 << " (" << nodes[i].x << ", " << nodes[i].y << "), тип: ";
+            switch (nodes[i].type) {
+            case DUMMY:
+                std::cout << "Фиктивный" << std::endl;
+                break;
+            case BOUNDARY:
+                std::cout << "Граничный" << std::endl;
+                break;
+            case INTERNAL:
+                std::cout << "Внутренний" << std::endl;
+                break;
+            }
+        }
+}
+
+int main() {
     setlocale(LC_ALL, "Russian");
 
     double h = 2.0; // Шаг сетки
@@ -124,24 +136,26 @@ void saveMatrixToFile(const std::vector<std::vector<double>>& matrix, const std:
             else {
                 node.type = DUMMY; // Фиктивный узел
             }
+
             nodes.push_back(node);
         }
     }
 
-    std::cout << "Узлы сетки в T-образной области и фиктивные узлы:\n";
-    for (const auto& node : nodes) {
-        std::cout << "(" << node.x << ", " << node.y << ")-" << static_cast<int>(node.type) << "\n";
-    }
-
-    // Создание 5-ти диагональной матрицы
-    std::vector<std::vector<double>> matrix;
-    int size;
-    createMatrix(nodes,0,12,0,8);
+    // Создание матрицы смежности
+    std::vector<std::vector<int>> adjacencyMatrix;
+    createMatrix(nodes, adjacencyMatrix);
 
     // Сохранение матрицы в файл
-    saveMatrixToFile(matrix, "matrix.txt");
+    saveMatrixToFile(adjacencyMatrix, "matrix.txt");
 
-    std::cout << "5-ти диагональная матрица сохранена в файл matrix.txt." << std::endl;
+    // Подсчет единиц в матрице
+    int onesCount = countOnes(adjacencyMatrix);
+    std::cout << "Количество единиц в матрице смежности: " << onesCount << std::endl;
+
+    // Вывод списка узлов
+    printNodes(nodes);
+
+    std::cout << "Матрица смежности успешно сохранена в файл 'matrix.txt'." << std::endl;
 
     return 0;
 }
