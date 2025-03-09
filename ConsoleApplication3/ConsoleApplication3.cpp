@@ -5,6 +5,50 @@
 #include <locale>
 #include <algorithm>
 #include <tuple> 
+#include <fstream>
+
+#include <iostream>
+#include <fstream>
+#include <vector>
+#include <map>
+
+void saveMatrixToFile(const std::vector<std::vector<double>>& A, const std::string& filename) {
+    std::ofstream file(filename);
+    if (!file.is_open()) {
+        std::cerr << "Ошибка открытия файла для записи!" << std::endl;
+        return;
+    }
+
+    int N = A.size();
+    std::map<int, std::vector<std::pair<std::pair<int, int>, double>>> diagonals; // Хранит элементы по диагоналям
+
+    // Сохраняем ненулевые элементы и определяем диагонали
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            if (A[i][j] != 0) {
+                int d = i - j; // Определяем смещение (диагональ)
+                diagonals[d].emplace_back(std::make_pair(i, j), A[i][j]); // Добавляем индекс и значение
+            }
+        }
+    }
+
+    // Записываем ненулевые элементы по найденным диагоналям
+    for (const auto& entry : diagonals) {
+        int d = entry.first;
+        file << "Диагональ d = " << d << ": ";
+
+        for (const auto& elem : entry.second) {
+            auto indices = elem.first;
+            double value = elem.second;
+            file << " " << value << " "; // Сохраняем индекс и значение
+        }
+        file << std::endl; // Переход на новую строку после записи всех элементов для данной диагонали
+    }
+
+    file.close();
+    std::cout << "Матрица успешно сохранена в файл: " << filename << std::endl;
+}
+
 
 double lamda = 1.0;
 double gamma = 1.0;
@@ -213,25 +257,35 @@ void printResults(const std::vector<std::vector<GridNode>>& grid,
 
 int main() {
     std::setlocale(LC_ALL, "Russian");
+
+    // Чтение данных
     double x_min, x_max, y_min, y_max;
     int x_steps, y_steps;
     std::vector<BoundaryCondition> boundaryConditions;
     readInputData("input.txt", x_min, x_max, x_steps, y_min, y_max, y_steps, boundaryConditions);
+
+    // Создание полигона
     std::vector<Point> polygon;
     for (const auto& condition : boundaryConditions) {
         polygon.push_back(condition.p1);
         polygon.push_back(condition.p2);
     }
 
+    // Создание сетки и получение x_nodes и y_nodes
     std::vector<std::vector<GridNode>> grid;
     std::vector<double> x_nodes, y_nodes;
     std::tie(grid, x_nodes, y_nodes) = createGrid(x_min, x_max, x_steps, y_min, y_max, y_steps, boundaryConditions, polygon);
+
+    // Построение матрицы и правой части
     std::vector<std::vector<double>> A;
     std::vector<double> b;
     buildMatrixAndRightHandSide(grid, x_nodes, y_nodes, A, b);
 
     // Вывод результатов
     printResults(grid, A, b);
+
+    // Сохранение матрицы в файл в 5-ти диагональном формате
+    saveMatrixToFile(A, "matrix_output.txt");
 
     return 0;
 }
