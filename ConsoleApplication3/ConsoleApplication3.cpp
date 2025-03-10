@@ -519,7 +519,26 @@ void buildMatrixAndRightHandSides(const std::vector<std::vector<GridNode>>& grid
         }
     }
 }
+void writeResultsToFile(const std::string& filename, const std::vector<std::vector<GridNode>>& grid, const std::vector<double>& solutions, const std::vector<double>& b) {
+    std::ofstream outFile(filename);
+    if (!outFile) {
+        std::cerr << "Ошибка открытия файла для записи!" << std::endl;
+        return;
+    }
 
+    outFile << "N \tx\ty\tu\tu*\t|u - u*|\n";
+    for (const auto& row : grid) {
+        for (const auto& node : row) {
+            int idx = node.index;
+            double difference = std::abs(solutions[idx] - b[idx]);
+            outFile << node.index  << "\t" << node.x << "\t" << node.y << "\t"
+                << b[idx] << "\t" << solutions[idx] << "\t" << difference << "\n";
+        }
+    }
+
+    outFile.close();
+    std::cout << "Результаты успешно сохранены в файл: " << filename << std::endl;
+}
 int main() {
     std::setlocale(LC_ALL, "Russian");
 
@@ -553,7 +572,8 @@ int main() {
 
     // Решение СЛАУ методом Гаусса
     std::vector<double> x = solveWithGaussianElimination(A, b);
-
+    // Запись результатов в файл
+    writeResultsToFile("results.txt", grid, x, b);
 
     printResults(grid, matrix, b);
     // Вывод решения
