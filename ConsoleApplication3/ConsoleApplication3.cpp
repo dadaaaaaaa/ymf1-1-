@@ -272,8 +272,6 @@ int main() {
     int x_steps, y_steps;
     std::vector<BoundaryCondition> boundaryConditions;
     readInputData("input.txt", x_min, x_max, x_steps, y_min, y_max, y_steps, boundaryConditions);
-
-    // Создание полигона
     std::vector<Point> polygon;
     for (const auto& condition : boundaryConditions) {
         polygon.push_back(condition.p1);
