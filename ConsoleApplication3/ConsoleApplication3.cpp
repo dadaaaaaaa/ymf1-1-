@@ -6,6 +6,9 @@
 #include <algorithm>
 #include <tuple>
 #include <map>
+#include <iomanip> // Для форматированного вывода
+
+using namespace std;
 
 double lamda = 1.0;
 double gamma = 1.0;
@@ -152,42 +155,63 @@ void printResults(const std::vector<std::vector<GridNode>>& grid, const std::vec
     }
 }
 
-std::vector<double> solveWithGaussSeidel(const std::vector<double>& di, const std::vector<double>& u1, const std::vector<double>& u2,
-    const std::vector<double>& l1, const std::vector<double>& l2, const std::vector<double>& b,
-    int maxIterations = 1000, double tolerance = 1e-12) {
-    int N = di.size();
-    std::vector<double> x(N, 0.0);
+// Функции для метода Гаусса-Зейделя
+double norm(int n, vector<double> mas) {
+    double sum = 0;
+    for (int i = 0; i < n; i++)
+        sum += mas[i] * mas[i];
+    return sqrt(sum);
+}
 
-    for (int iter = 0; iter < maxIterations; ++iter) {
-        std::vector<double> x_old = x;
-        double maxError = 0.0;
+double norm2(int n, vector<double> v, vector<double> mas) {
+    double sum = 0;
+    for (int i = 0; i < n; i++)
+        sum += (v[i] - mas[i]) * (v[i] - mas[i]);
+    return sqrt(sum);
+}
 
-        for (int i = 0; i < N; ++i) {
-            double sum = b[i];
-
-            if (i > 0) sum -= l2[i - 1] * x[i - 1];
-            if (i > 1) sum -= l1[i - 2] * x[i - 2];
-            if (i < N - 1) sum -= u2[i] * x[i + 1];
-            if (i < N - 2) sum -= u1[i] * x[i + 2];
-
-            x[i] = sum / di[i];
-            maxError = std::max(maxError, std::abs(x[i] - x_old[i]));
+double iter(int i, int n, int m, double w, vector<double> di, vector<double> u1, vector<double> u2, vector<double> l1, vector<double> l2, vector<double> f, vector<double> x0, vector<double>& xnext) {
+    double sum = 0, a = 0;
+    for (int j = 0; j < n; j++) {
+        if (i == j) a = di[i]; // главная диагональ
+        else {
+            int r = j - i;
+            if (r == m) a = u1[i]; // верхние диагонали
+            else if (r == 1) a = u2[i];
+            else if (r == -m) a = l1[j]; // нижние диагонали
+            else if (r == -1) a = l2[j];
+            else a = 0;
         }
-
-        if (maxError < tolerance) {
-            std::cout << "Метод Гаусса-Зейделя сошелся за " << iter + 1 << " итераций." << std::endl;
-            return x;
-        }
+        sum += a * x0[j];
     }
+    xnext[i] = x0[i] + w / di[i] * (f[i] - sum);
+    return sum;
+}
 
-    std::cout << "Метод Гаусса-Зейделя не сошелся за " << maxIterations << " итераций." << std::endl;
-    return x;
+void zeidel(int n, int m, int maxit, double e, double w, vector<double> di, vector<double> u1, vector<double> u2, vector<double> l1, vector<double> l2, vector<double> f, vector<double>& x0) {
+    ofstream out;
+    out.open("output.txt");
+    int flag = 1, k = 0;
+    vector<double> Ax(n, 0.0);
+    while (flag) {
+        for (int i = 0; i < n; i++)
+            Ax[i] = iter(i, n, m, w, di, u1, u2, l1, l2, f, x0, x0);
+        k++;
+        if ((norm2(n, f, Ax) / norm(n, f) > e && k < maxit))
+            flag = 1;
+        else flag = 0;
+    }
+    out << "Метод Гаусса-Зейделя:\n";
+        for (int i = 0; i < n; i++)
+            out << scientific << setprecision(15) << x0[i] << "\n";
+        out.close();
 }
 
 void buildMatrixAndRightHandSides(const std::vector<std::vector<GridNode>>& grid,
     const std::vector<double>& x_nodes, const std::vector<double>& y_nodes,
     std::vector<double>& di, std::vector<double>& u1, std::vector<double>& u2,
-    std::vector<double>& l1, std::vector<double>& l2, std::vector<double>& b, int x_steps, int y_steps) {
+    std::vector<double>& l1, std::vector<double>& l2, std::vector<double>& b,
+    std::vector<double>& x0) {
     int N = grid.size() * grid[0].size();
     di.assign(N, 0.0);
     u1.assign(N, 0.0);
@@ -195,61 +219,51 @@ void buildMatrixAndRightHandSides(const std::vector<std::vector<GridNode>>& grid
     l1.assign(N, 0.0);
     l2.assign(N, 0.0);
     b.assign(N, 0.0);
+    x0.assign(N, 0.0);
 
     int rows = grid.size();
     int cols = grid[0].size();
-    // Заполнение матрицы
+
     for (int i = 0; i < rows; ++i) {
         for (int j = 0; j < cols; ++j) {
-            int idx = i * cols + j; // Индекс текущего узла
+            int idx = i * cols + j;
 
             if (grid[i][j].type == "фиктивный") {
                 di[idx] = 1.0;
                 b[idx] = 0;
+                x0[idx] = 0;
                 continue;
             }
 
             if (grid[i][j].type == "граничный" && grid[i][j].boundaryType == 1) {
                 di[idx] = 1.0;
                 b[idx] = boundaryFunction(grid[i][j].x, grid[i][j].y);
+                x0[idx] = b[idx]; // Устанавливаем начальное приближение для граничных узлов
             }
             else if (grid[i][j].type == "внутренний") {
-                double hx = (j > 0) ? (x_nodes[j] - x_nodes[j - 1]) : 1.0; // Шаг по X
-                double hy = (i > 0) ? (y_nodes[i] - y_nodes[i - 1]) : 1.0; // Шаг по Y
+                double hx = (j > 0) ? (x_nodes[j] - x_nodes[j - 1]) : 1.0;
+                double hy = (i > 0) ? (y_nodes[i] - y_nodes[i - 1]) : 1.0;
 
                 b[idx] = boundaryFunction(grid[i][j].x, grid[i][j].y);
                 di[idx] = _cu(hx, hy);
 
-                // Заполнение нижних диагоналей
                 if (j > 0 && grid[i][j - 1].type != "фиктивный") {
-                    l1[idx] = _yu(hx); // Первая нижняя диагональ
+                    l1[idx - 1] = _yu(hx);
                 }
                 if (i > 0 && grid[i - 1][j].type != "фиктивный") {
-                    l2[idx] = _yu(hy); // Вторая нижняя диагональ
+                    l2[idx - cols] = _yu(hy);
                 }
-
-                // Заполнение верхних диагоналей
                 if (j < cols - 1 && grid[i][j + 1].type != "фиктивный") {
-                    u1[idx] = _yu(hx); // Первая верхняя диагональ
+                    u1[idx] = _yu(hx);
                 }
                 if (i < rows - 1 && grid[i + 1][j].type != "фиктивный") {
-                    u2[idx] = _yu(hy); // Вторая верхняя диагональ
+                    u2[idx] = _yu(hy);
                 }
             }
         }
     }
-
-    // Для проверки корректности заполнения
-    for (int i = 0; i < N; ++i) {
-        std::cout << "di[" << i << "] = " << di[i] << ", ";
-        if (i < N - 1) std::cout << "u1[" << i << "] = " << u1[i] << ", ";
-        if (i < N - cols - 1) std::cout << "u2[" << i << "] = " << u2[i] << ", ";
-        if (i > 0) std::cout << "l1[" << i << "] = " << l1[i] << ", ";
-        if (i > cols - 1) std::cout << "l2[" << i << "] = " << l2[i] << ", ";
-        std::cout << "b[" << i << "] = " << b[i] << std::endl;
-    }
-
 }
+
 
 void writeResultsToFile(const std::string& filename, const std::vector<std::vector<GridNode>>& grid, const std::vector<double>& solutions, const std::vector<double>& b) {
     std::ofstream outFile(filename);
@@ -289,22 +303,23 @@ int main() {
     std::vector<double> x_nodes, y_nodes;
     std::tie(grid, x_nodes, y_nodes) = createGrid(x_min, x_max, x_steps, y_min, y_max, y_steps, boundaryConditions, polygon);
 
-    std::vector<double> di, u1, u2, l1, l2, b;
-    buildMatrixAndRightHandSides(grid, x_nodes, y_nodes, di, u1, u2, l1, l2, b, x_steps, y_steps);
+    std::vector<double> di, u1, u2, l1, l2, b, x0;
+    buildMatrixAndRightHandSides(grid, x_nodes, y_nodes, di, u1, u2, l1, l2, b, x0);
+    int maxit = 1000;
+    double e = 1e-15, w = 1.1;
+    zeidel(di.size(), grid[0].size(), maxit, e, w, di, u1, u2, l1, l2, b, x0);
 
-    std::vector<double> x = solveWithGaussSeidel(di, u1, u2, l1, l2, b);
-
-    writeResultsToFile("results.txt", grid, x, b);
+    writeResultsToFile("results.txt", grid, x0, b);
 
     printResults(grid, b);
 
     std::cout << "Решение СЛАУ:" << std::endl;
-    for (int i = 0; i < x.size(); ++i) {
-        std::cout << "x[" << i << "] = " << x[i] << std::endl;
+    for (int i = 0; i < x0.size(); ++i) {
+        std::cout << "x[" << i << "] = " << x0[i] << std::endl;
     }
     std::cout << "Решение Ошибка:" << std::endl;
-    for (int i = 0; i < x.size(); ++i) {
-        std::cout << "x[" << i << "] = " << x[i] - b[i] << std::endl;
+    for (int i = 0; i < x0.size(); ++i) {
+        std::cout << "x[" << i << "] = " << x0[i] - b[i] << std::endl;
     }
 
     return 0;
