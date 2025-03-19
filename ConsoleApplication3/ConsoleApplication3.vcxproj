@@ -130,7 +130,10 @@
     <ClCompile Include="ConsoleApplication3.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <Text Include="AreaX.txt" />
+    <Text Include="AreaY.txt" />
     <Text Include="boundary_conditions.txt" />
+    <Text Include="Fict.txt" />
     <Text Include="input.txt" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

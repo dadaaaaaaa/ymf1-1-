@@ -22,5 +22,8 @@
   <ItemGroup>
     <Text Include="input.txt" />
     <Text Include="boundary_conditions.txt" />
+    <Text Include="AreaX.txt" />
+    <Text Include="AreaY.txt" />
+    <Text Include="Fict.txt" />
   </ItemGroup>
 </Project>
