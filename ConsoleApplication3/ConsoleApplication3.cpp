@@ -1,5 +1,4 @@
-﻿
-#include <iostream>
+﻿#include <iostream>
 #include <fstream>
 #include <vector>
 #include <cmath>
@@ -29,325 +28,158 @@
 #include <algorithm>
 #include <tuple> 
 #include <map>
+using namespace std;
+// Структура для хранения 5-ти диагональной матрицы
+struct FiveDiagonalMatrix {
+    std::vector<double> mainDiagonal;      // Главная диагональ
+    std::vector<double> upperDiagonal1;     // Первая верхняя диагональ
+    std::vector<double> upperDiagonal2;     // Вторая верхняя диагональ
+    std::vector<double> lowerDiagonal1;     // Первая нижняя диагональ
+    std::vector<double> lowerDiagonal2;     // Вторая нижняя диагональ
+};
 
 double lamda = 1.0;
 double gamma = 1.0;
 
 
 double _yu(double h) {
-	return (-lamda / (h * h));
+    return (-lamda / (h * h));
 }
 
 // Функция для вычисления центрального коэффициента
 double _cu(double h, double hy) {
-	return (2 * lamda * (1 / (h * h) + 1 / (hy * hy)) + gamma);
+    return (2 * lamda * (1 / (h * h) + 1 / (hy * hy)) + gamma);
 }
 
 // Структура для хранения точки
 struct Point {
-	double x, y;
+    double x, y;
 };
 
 // Структура для хранения граничного условия
 struct BoundaryCondition {
-    Point p1, p2;
-    int type;
+    Point p1, p2; // Точки, образующие прямую
+    int type; // Тип граничного условия
 };
 
 // Структура для хранения узла сетки
 struct GridNode {
     double x, y;
-    std::string type;
-    int boundaryType;
-    int index;
+    std::string type; // Тип узла: "фиктивный", "граничный", "внутренний"
+    int boundaryType; // Тип граничного условия (если узел граничный)
+    int index; // Индекс узла в матрице
 };
-using namespace std;
 
-// Метод сопряженных градиентов для пятидиагональной матрицы
-void MCG(const vector<double>& di, const vector<double>& u1, const vector<double>& u2,
-	const vector<double>& l1, const vector<double>& l2, const vector<double>& b,
-	vector<double>& x, int max_iter = 1000, double eps = 1e-6) {
-
-	int n = di.size();
-	vector<double> r(n), p(n), Ap(n);
-	double rr, rr_new, alpha, beta;
-
-	// Инициализация
-	x.assign(n, 0.0);
-	r = b;
-
-	// Учет граничных условий
-	for (int i = 0; i < n; ++i) {
-		if (abs(di[i] - 1.0) < 1e-9) { // Граничный узел
-			x[i] = b[i];
-			r[i] = 0.0;
-		}
-	}
-
-	// Первое вычисление невязки
-	rr = 0.0;
-	for (int i = 0; i < n; ++i) rr += r[i] * r[i];
-
-	// Главный цикл
-	for (int iter = 0; iter < max_iter; ++iter) {
-		// Умножение матрицы на вектор
-		for (int i = 0; i < n; ++i) {
-			Ap[i] = di[i] * p[i];
-			if (i > 0) Ap[i] += l1[i - 1] * p[i - 1];
-			if (i < n - 1) Ap[i] += u1[i] * p[i + 1];
-			if (i >= 5) Ap[i] += l2[i - 5] * p[i - 5];
-			if (i < n - 5) Ap[i] += u2[i] * p[i + 5];
-		}
-
-		// Вычисление коэффициентов
-		double pAp = 0.0;
-		for (int i = 0; i < n; ++i) pAp += p[i] * Ap[i];
-		alpha = rr / pAp;
-
-		// Обновление решения и невязки
-		for (int i = 0; i < n; ++i) {
-			x[i] += alpha * p[i];
-			r[i] -= alpha * Ap[i];
-		}
-
-		// Проверка сходимости
-		rr_new = 0.0;
-		for (int i = 0; i < n; ++i) rr_new += r[i] * r[i];
-		if (sqrt(rr_new) < eps) {
-			cout << "Сходимость достигнута за " << iter << " итераций" << endl;
-			return;
-		}
-
-		// Обновление направления
-		beta = rr_new / rr;
-		for (int i = 0; i < n; ++i) p[i] = r[i] + beta * p[i];
-		rr = rr_new;
-	}
-	cout << "Достигнуто максимальное число итераций" << endl;
-}
 bool isPointOnLineSegment(const Point& p1, const Point& p2, const Point& p) {
+    // Проверка, лежит ли точка на прямой
     double cross = (p2.x - p1.x) * (p.y - p1.y) - (p2.y - p1.y) * (p.x - p1.x);
-    if (std::abs(cross) > 1e-12) return false;
+    if (std::abs(cross) > 1e-12) return false; // Точка не на прямой
 
-    if (p1.x != p2.x) {
+    // Проверка, лежит ли точка внутри отрезка
+    if (p1.x != p2.x) { // Горизонтальная линия
         if ((p.x < std::min(p1.x, p2.x)) || (p.x > std::max(p1.x, p2.x))) return false;
     }
-    else {
+    else { // Вертикальная линия
         if ((p.y < std::min(p1.y, p2.y)) || (p.y > std::max(p1.y, p2.y))) return false;
     }
-
+    // Проверка, лежит ли точка внутри отрезка
     double dot = (p.x - p1.x) * (p2.x - p1.x) + (p.y - p1.y) * (p2.y - p1.y);
-    if (dot < 0) return false;
+    if (dot < 0) return false; // Точка за пределами отрезка
 
     double squaredLength = (p2.x - p1.x) * (p2.x - p1.x) + (p2.y - p1.y) * (p2.y - p1.y);
-    if (dot > squaredLength) return false;
+    if (dot > squaredLength) return false; // Точка за пределами отрезка
     return true;
 }
 
 // Функция для проверки, находится ли точка внутри многоугольника
 bool isPointInsidePolygon(const std::vector<Point>& polygon, const Point& p) {
-	int n = polygon.size();
-	bool inside = false;
-	for (int i = 0, j = n - 1; i < n; j = i++) {
-		if (((polygon[i].y > p.y) != (polygon[j].y > p.y)) &&
-			(p.x < (polygon[j].x - polygon[i].x) * (p.y - polygon[i].y) / (polygon[j].y - polygon[i].y) + polygon[i].x)) {
-			inside = !inside;
-		}
-	}
-	return inside;
+    int n = polygon.size();
+    bool inside = false;
+    for (int i = 0, j = n - 1; i < n; j = i++) {
+        if (((polygon[i].y > p.y) != (polygon[j].y > p.y)) &&
+            (p.x < (polygon[j].x - polygon[i].x) * (p.y - polygon[i].y) / (polygon[j].y - polygon[i].y) + polygon[i].x)) {
+            inside = !inside;
+        }
+    }
+    return inside;
 }
 
+// Функция для вычисления значения функции на границе (пример)
+
+
+// Функция для вычисления значения функции на границе 
+double boundaryFunction(double x, double y) {
+    return x * x   + y * y ; // Пример функции
+}
+// Функция для вычисления значения функции на границе 
+double rightFunction(double x, double y) {
+    return -4  + x * x  + y * y ; // Пример функции
+}
 void readInputData(const std::string& filename, double& x_min, double& x_max, int& x_steps,
-	double& y_min, double& y_max, int& y_steps,
-	std::vector<BoundaryCondition>& boundaryConditions) {
-	std::ifstream file(filename);
-	if (!file.is_open()) {
-		std::cerr << "Ошибка открытия файла!" << std::endl;
-		exit(1);
-	}
+    double& y_min, double& y_max, int& y_steps,
+    std::vector<BoundaryCondition>& boundaryConditions) {
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+        std::cerr << "Ошибка открытия файла!" << std::endl;
+        exit(1);
+    }
 
-	file >> x_min >> x_max >> x_steps;
-	file >> y_min >> y_max >> y_steps;
+    file >> x_min >> x_max >> x_steps;
+    file >> y_min >> y_max >> y_steps;
 
-	BoundaryCondition bc;
-	while (file >> bc.p1.x >> bc.p1.y >> bc.p2.x >> bc.p2.y >> bc.type) {
-		boundaryConditions.push_back(bc);
-	}
-	file.close();
+    BoundaryCondition bc;
+    while (file >> bc.p1.x >> bc.p1.y >> bc.p2.x >> bc.p2.y >> bc.type) {
+        boundaryConditions.push_back(bc);
+    }
+    file.close();
 }
 
 
 std::tuple<std::vector<std::vector<GridNode>>, std::vector<double>, std::vector<double>>
 createGrid(double x_min, double x_max, int x_steps,
-	double y_min, double y_max, int y_steps,
-	const std::vector<BoundaryCondition>& boundaryConditions,
-	const std::vector<Point>& polygon) {
-	std::vector<double> x_nodes(x_steps + 1);
-	std::vector<double> y_nodes(y_steps + 1);
-	for (int i = 0; i <= x_steps; ++i) {
-		x_nodes[i] = x_min + i * (x_max - x_min) / x_steps;
-	}
-	for (int i = 0; i <= y_steps; ++i) {
-		y_nodes[i] = y_min + i * (y_max - y_min) / y_steps;
-	}
-
-	std::vector<std::vector<GridNode>> grid(y_steps + 1, std::vector<GridNode>(x_steps + 1));
-	int nodeIndex = 0;
-	for (int i = 0; i <= y_steps; ++i) {
-		for (int j = 0; j <= x_steps; ++j) {
-			grid[i][j].x = x_nodes[j];
-			grid[i][j].y = y_nodes[i];
-			grid[i][j].boundaryType = -1;
-			grid[i][j].index = nodeIndex++;
-
-			bool isBoundary = false;
-			for (const auto& condition : boundaryConditions) {
-				if (isPointOnLineSegment(condition.p1, condition.p2, { grid[i][j].x, grid[i][j].y })) {
-					isBoundary = true;
-					grid[i][j].boundaryType = condition.type;
-					break;
-				}
-			}
-
-			if (isBoundary) {
-				grid[i][j].type = "граничный";
-			}
-			else if (isPointInsidePolygon(polygon, { grid[i][j].x, grid[i][j].y })) {
-				grid[i][j].type = "внутренний";
-			}
-			else {
-				grid[i][j].type = "фиктивный";
-			}
-		}
-	}
-
-	return std::make_tuple(grid, x_nodes, y_nodes);
-}
-
-void printResults(const std::vector<std::vector<GridNode>>& grid, const std::vector<double>& b) {
-    std::cout << "Номера узлов и их координаты:" << std::endl;
-    for (const auto& row : grid) {
-        for (const auto& node : row) {
-            std::cout << "Узел " << node.index << ": (" << node.x << ", " << node.y << "), тип: " << node.type;
-            if (node.type == "граничный") {
-                std::cout << ", тип граничного условия: " << node.boundaryType;
-            }
-            std::cout << std::endl;
-        }
+    double y_min, double y_max, int y_steps,
+    const std::vector<BoundaryCondition>& boundaryConditions,
+    const std::vector<Point>& polygon) {
+    std::vector<double> x_nodes(x_steps + 1);
+    std::vector<double> y_nodes(y_steps + 1);
+    for (int i = 0; i <= x_steps; ++i) {
+        x_nodes[i] = x_min + i * (x_max - x_min) / x_steps;
     }
-    std::cout << "Правая часть b:" << std::endl;
-    for (int i = 0; i < b.size(); i++) {
-        std::cout << "b[" << i << "] = " << b[i] << std::endl;
+    for (int i = 0; i <= y_steps; ++i) {
+        y_nodes[i] = y_min + i * (y_max - y_min) / y_steps;
     }
-}
 
-// Функции для метода Гаусса-Зейделя
-double norm(int n, vector<double> mas) {
-    double sum = 0;
-    for (int i = 0; i < n; i++)
-        sum += mas[i] * mas[i];
-    return sqrt(sum);
-}
+    std::vector<std::vector<GridNode>> grid(y_steps + 1, std::vector<GridNode>(x_steps + 1));
+    int nodeIndex = 0;
+    for (int i = 0; i <= y_steps; ++i) {
+        for (int j = 0; j <= x_steps; ++j) {
+            grid[i][j].x = x_nodes[j];
+            grid[i][j].y = y_nodes[i];
+            grid[i][j].boundaryType = -1;
+            grid[i][j].index = nodeIndex++;
 
-double norm2(int n, vector<double> v, vector<double> mas) {
-    double sum = 0;
-    for (int i = 0; i < n; i++)
-        sum += (v[i] - mas[i]) * (v[i] - mas[i]);
-    return sqrt(sum);
-}
-
-double iter(int i, int n, int m, double w, vector<double> di, vector<double> u1, vector<double> u2, vector<double> l1, vector<double> l2, vector<double> f, vector<double> x0, vector<double>& xnext) {
-    double sum = 0, a = 0;
-    for (int j = 0; j < n; j++) {
-        if (i == j) a = di[i]; // главная диагональ
-        else {
-            int r = j - i;
-            if (r == m) a = u1[i]; // верхние диагонали
-            else if (r == 1) a = u2[i];
-            else if (r == -m) a = l1[j]; // нижние диагонали
-            else if (r == -1) a = l2[j];
-            else a = 0;
-        }
-        sum += a * x0[j];
-    }
-    xnext[i] = x0[i] + w / di[i] * (f[i] - sum);
-    return sum;
-}
-
-void zeidel(int n, int m, int maxit, double e, double w, vector<double> di, vector<double> u1, vector<double> u2, vector<double> l1, vector<double> l2, vector<double> f, vector<double>& x0) {
-    ofstream out;
-    out.open("output.txt");
-    int flag = 1, k = 0;
-    vector<double> Ax(n, 0.0);
-    while (flag) {
-        for (int i = 0; i < n; i++)
-            Ax[i] = iter(i, n, m, w, di, u1, u2, l1, l2, f, x0, x0);
-        k++;
-        if ((norm2(n, f, Ax) / norm(n, f) > e && k < maxit))
-            flag = 1;
-        else flag = 0;
-    }
-    out << "Метод Гаусса-Зейделя:\n";
-        for (int i = 0; i < n; i++)
-            out << scientific << setprecision(15) << x0[i] << "\n";
-        out.close();
-}
-
-void buildMatrixAndRightHandSides(const std::vector<std::vector<GridNode>>& grid,
-    const std::vector<double>& x_nodes, const std::vector<double>& y_nodes,
-    std::vector<double>& di, std::vector<double>& u1, std::vector<double>& u2,
-    std::vector<double>& l1, std::vector<double>& l2, std::vector<double>& b,
-    std::vector<double>& x0) {
-    int N = grid.size() * grid[0].size();
-    di.assign(N, 0.0);
-    u1.assign(N, 0.0);
-    u2.assign(N, 0.0);
-    l1.assign(N, 0.0);
-    l2.assign(N, 0.0);
-    b.assign(N, 0.0);
-    x0.assign(N, 0.0);
-
-    int rows = grid.size();
-    int cols = grid[0].size();
-
-    for (int i = 0; i < rows; ++i) {
-        for (int j = 0; j < cols; ++j) {
-            int idx = i * cols + j;
-
-            if (grid[i][j].type == "фиктивный") {
-                di[idx] = 1.0;
-                b[idx] = 0;
-                x0[idx] = 0;
-                continue;
+            bool isBoundary = false;
+            for (const auto& condition : boundaryConditions) {
+                if (isPointOnLineSegment(condition.p1, condition.p2, { grid[i][j].x, grid[i][j].y })) {
+                    isBoundary = true;
+                    grid[i][j].boundaryType = condition.type;
+                    break;
+                }
             }
 
-            if (grid[i][j].type == "граничный" && grid[i][j].boundaryType == 1) {
-                di[idx] = 1.0;
-                b[idx] = boundaryFunction(grid[i][j].x, grid[i][j].y);
-                x0[idx] = b[idx]; // Устанавливаем начальное приближение для граничных узлов
+            if (isBoundary) {
+                grid[i][j].type = "граничный";
             }
-            else if (grid[i][j].type == "внутренний") {
-                double hx = (j > 0) ? (x_nodes[j] - x_nodes[j - 1]) : 1.0;
-                double hy = (i > 0) ? (y_nodes[i] - y_nodes[i - 1]) : 1.0;
-
-                b[idx] = boundaryFunction(grid[i][j].x, grid[i][j].y);
-                di[idx] = _cu(hx, hy);
-
-                if (j > 0 && grid[i][j - 1].type != "фиктивный") {
-                    l1[idx - 1] = _yu(hx);
-                }
-                if (i > 0 && grid[i - 1][j].type != "фиктивный") {
-                    l2[idx - cols] = _yu(hy);
-                }
-                if (j < cols - 1 && grid[i][j + 1].type != "фиктивный") {
-                    u1[idx] = _yu(hx);
-                }
-                if (i < rows - 1 && grid[i + 1][j].type != "фиктивный") {
-                    u2[idx] = _yu(hy);
-                }
+            else if (isPointInsidePolygon(polygon, { grid[i][j].x, grid[i][j].y })) {
+                grid[i][j].type = "внутренний";
+            }
+            else {
+                grid[i][j].type = "фиктивный";
             }
         }
     }
+
+    return std::make_tuple(grid, x_nodes, y_nodes);
 }
 
 
@@ -359,10 +191,14 @@ void writeResultsToFile(const std::string& filename, const std::vector<std::vect
     }
 
     outFile << "N \tx\ty\tu\tu*\t|u - u*|\n";
+    double difference = 0;
     for (const auto& row : grid) {
         for (const auto& node : row) {
             int idx = node.index;
-            double difference = std::abs(solutions[idx] - b[idx]);
+            if (b[idx] != 0)
+                difference = std::abs(solutions[idx] - boundaryFunction(node.x, node.y));
+            else
+                difference = 0;
             outFile << node.index << "\t" << node.x << "\t" << node.y << "\t"
                 << b[idx] << "\t" << solutions[idx] << "\t" << difference << "\n";
         }
@@ -371,41 +207,309 @@ void writeResultsToFile(const std::string& filename, const std::vector<std::vect
     outFile.close();
     std::cout << "Результаты успешно сохранены в файл: " << filename << std::endl;
 }
-int main() {
-	std::setlocale(LC_ALL, "Russian");
 
-    double x_min, x_max, y_min, y_max;
+
+void printResults(const std::vector<std::vector<GridNode>>& grid,
+    const FiveDiagonalMatrix& matrix, const std::vector<double>& b) {
+    std::cout << "Номера узлов и их координаты:" << std::endl;
+    for (const auto& row : grid) {
+        for (const auto& node : row) {
+            std::cout << "Узел " << node.index << ": (" << node.x << ", " << node.y << "), тип: " << node.type;
+            if (node.type == "граничный") {
+                std::cout << ", тип граничного условия: " << node.boundaryType;
+            }
+            std::cout << std::endl;
+        }
+    }
+
+}
+
+
+// Функция для сохранения 5-ти диагональной матрицы в файл
+void saveFiveDiagonalMatrixToFile(const FiveDiagonalMatrix& matrix, const std::string& filename) {
+    std::ofstream file(filename);
+    if (!file.is_open()) {
+        std::cerr << "Ошибка открытия файла для записи!" << std::endl;
+        return;
+    }
+
+    // Сохраняем главную диагональ
+    for (double val : matrix.mainDiagonal) {
+        file << val << " ";
+    }
+    file << std::endl;
+
+    // Сохраняем первую верхнюю диагональ
+    for (double val : matrix.upperDiagonal1) {
+        file << val << " ";
+    }
+    file << std::endl;
+
+    // Сохраняем вторую верхнюю диагональ
+    for (double val : matrix.upperDiagonal2) {
+        file << val << " ";
+    }
+    file << std::endl;
+
+    // Сохраняем первую нижнюю диагональ
+    for (double val : matrix.lowerDiagonal1) {
+        file << val << " ";
+    }
+    file << std::endl;
+
+    // Сохраняем вторую нижнюю диагональ
+    for (double val : matrix.lowerDiagonal2) {
+        file << val << " ";
+    }
+    file << std::endl;
+
+    file.close();
+    std::cout << "5-ти диагональная матрица успешно сохранена в файл: " << filename << std::endl;
+}
+
+// Функция для построения 5-ти диагональной матрицы и правой части
+void buildFiveDiagonalMatrix(const std::vector<std::vector<GridNode>>& grid,
+    const std::vector<double>& x_nodes, const std::vector<double>& y_nodes,
+    FiveDiagonalMatrix& matrix, std::vector<double>& b) {
+    int N = grid.size() * grid[0].size();
+    matrix.mainDiagonal.resize(N, 0.0);
+    matrix.upperDiagonal1.resize(N - 1, 0.0); // Для первой верхней диагонали
+    matrix.upperDiagonal2.resize(N - 2, 0.0); // Для второй верхней диагонали
+    matrix.lowerDiagonal1.resize(N - 1, 0.0); // Для первой нижней диагонали
+    matrix.lowerDiagonal2.resize(N - 2, 0.0); // Для второй нижней диагонали
+    b.assign(N, 0.0);
+
+    for (int i = 0; i < grid.size(); ++i) {
+        for (int j = 0; j < grid[i].size(); ++j) {
+            int idx = grid[i][j].index;
+            if (grid[i][j].type == "фиктивный") { matrix.mainDiagonal[idx] = 1.0; b[idx] = 0.0; continue; }
+
+
+
+            if (grid[i][j].type == "граничный" && grid[i][j].boundaryType == 1) {
+                matrix.mainDiagonal[idx] = 1.0;
+                b[idx] = boundaryFunction(grid[i][j].x, grid[i][j].y);
+            }
+            else if (grid[i][j].type == "внутренний") {
+                double hx = x_nodes[j] - x_nodes[j - 1];
+                double hy = y_nodes[i] - y_nodes[i - 1];
+                // Заполнение главной диагонали
+                matrix.mainDiagonal[idx] = _cu(hx, hy);
+
+                // Заполнение верхних диагоналей
+                if (j < grid[i].size() - 1 && grid[i][j + 1].type != "фиктивный") {
+                    matrix.upperDiagonal1[idx] = _yu(hx); // Первая верхняя диагональ
+                }
+                if (j < grid[i].size() - 2 && grid[i][j + 2].type != "фиктивный") {
+                    matrix.upperDiagonal2[idx] = _yu(hx); // Вторая верхняя диагональ
+                }
+
+                // Заполнение нижних диагоналей
+                if (j > 0 && grid[i][j - 1].type != "фиктивный") {
+                    matrix.lowerDiagonal1[idx] = _yu(hy); // Первая нижняя диагональ
+                }
+                if (j > 1 && grid[i][j - 2].type != "фиктивный") {
+                    matrix.lowerDiagonal2[idx] = _yu(hy); // Вторая нижняя диагональ
+                }
+            }
+        }
+    }
+}
+
+// Функция для решения СЛАУ методом блочной релаксации
+void blockRelaxation(const FiveDiagonalMatrix& matrix, const std::vector<double>& b, std::vector<double>& x, int maxIterations = 1000, double tolerance = 1e-6) {
+    int N = b.size();
+    x.assign(N, 0.0); // Начальное приближение (нулевой вектор)
+
+    for (int iter = 0; iter < maxIterations; ++iter) {
+        double maxError = 0.0;
+
+        for (int i = 0; i < N; ++i) {
+            double sum = 0.0;
+
+            // Учитываем элементы из нижних диагоналей
+            if (i >= 1) {
+                sum += matrix.lowerDiagonal1[i - 1] * x[i - 1];
+            }
+            if (i >= 2) {
+                sum += matrix.lowerDiagonal2[i - 2] * x[i - 2];
+            }
+
+            // Учитываем элементы из верхних диагоналей
+            if (i < N - 1) {
+                sum += matrix.upperDiagonal1[i] * x[i + 1];
+            }
+            if (i < N - 2) {
+                sum += matrix.upperDiagonal2[i] * x[i + 2];
+            }
+
+            // Вычисляем новое значение x[i]
+            double newX = (b[i] - sum) / matrix.mainDiagonal[i];
+
+            // Обновляем максимальную ошибку
+            maxError = std::max(maxError, std::abs(newX - x[i]));
+
+            // Обновляем значение x[i]
+            x[i] = newX;
+        }
+        // Проверка на сходимость
+        if (maxError < tolerance) {
+            std::cout << "Метод сошелся за " << iter + 1 << " итераций." << std::endl;
+            return;
+        }
+    }
+
+    std::cout << "Метод не сошелся за " << maxIterations << " итераций." << std::endl;
+}
+// Функция для создания полной матрицы из 5-ти диагональной
+std::vector<std::vector<double>> createFullMatrix(const FiveDiagonalMatrix& matrix, int N) {
+    std::vector<std::vector<double>> fullMatrix(N, std::vector<double>(N, 0.0));
+
+    for (int i = 0; i < N; ++i) {
+        fullMatrix[i][i] = matrix.mainDiagonal[i];
+        if (i < N - 1) {
+            fullMatrix[i][i + 1] = matrix.upperDiagonal1[i];
+            fullMatrix[i + 1][i] = matrix.lowerDiagonal1[i]; // Симметрично
+        }
+        if (i < N - 2) {
+            fullMatrix[i][i + 2] = matrix.upperDiagonal2[i];
+            fullMatrix[i + 2][i] = matrix.lowerDiagonal2[i]; // Симметрично
+        }
+    }
+
+    return fullMatrix;
+}
+
+// Функция для сохранения полной матрицы в файл
+void saveFullMatrixToFile(const std::vector<std::vector<double>>& matrix, const std::string& filename) {
+    std::ofstream file(filename);
+    if (!file.is_open()) {
+        std::cerr << "Ошибка открытия файла для записи полной матрицы!" << std::endl;
+        return;
+    }
+
+    for (const auto& row : matrix) {
+        for (double val : row) {
+            file << val << " ";
+        }
+        file << std::endl;
+    }
+
+    file.close();
+    std::cout << "Полная матрица успешно сохранена в файл: " << filename << std::endl;
+}
+
+// Функция для решения СЛАУ методом Гаусса
+std::vector<double> solveWithGaussianElimination(const std::vector<std::vector<double>>& matrix, const std::vector<double>& b) {
+    int N = matrix.size();
+    std::vector<double> x(N, 0.0);
+    std::vector<std::vector<double>> augmentedMatrix(N, std::vector<double>(N + 1));
+
+    // Создаем расширенную матрицу
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            augmentedMatrix[i][j] = matrix[i][j];
+        }
+        augmentedMatrix[i][N] = b[i];
+    }
+    saveFullMatrixToFile(augmentedMatrix, "full_matrix_output.txt");
+    // Прямой ход Гаусса
+    for (int i = 0; i < N; ++i) {
+        for (int j = i + 1; j < N; ++j) {
+            double factor = augmentedMatrix[j][i] / augmentedMatrix[i][i];
+            for (int k = i; k <= N; ++k) {
+                augmentedMatrix[j][k] -= factor * augmentedMatrix[i][k];
+            }
+        }
+    }
+
+    // Обратный ход
+    for (int i = N - 1; i >= 0; --i) {
+        x[i] = augmentedMatrix[i][N] / augmentedMatrix[i][i];
+        for (int j = i - 1; j >= 0; --j) {
+            augmentedMatrix[j][N] -= augmentedMatrix[j][i] * x[i];
+        }
+    }
+
+    return x;
+}
+void buildMatrixAndRightHandSides(const std::vector<std::vector<GridNode>>& grid,
+    const std::vector<double>& x_nodes, const std::vector<double>& y_nodes,
+    std::vector<std::vector<double>>& A, std::vector<double>& b) {
+    int N = grid.size() * grid[0].size();
+    A.assign(N, std::vector<double>(N, 0.0));
+    b.assign(N, 0.0);
+
+    for (int i = 0; i < grid.size(); ++i) {
+        for (int j = 0; j < grid[i].size(); ++j) {
+            int idx = grid[i][j].index;
+            if (grid[i][j].type == "фиктивный") { A[idx][idx] = 1.0;  b[idx] = 0; continue; }
+
+
+
+            if (grid[i][j].type == "граничный" && grid[i][j].boundaryType == 1) {
+                A[idx][idx] = 1.0;
+                b[idx] = boundaryFunction(grid[i][j].x, grid[i][j].y);
+            }
+            else if (grid[i][j].type == "внутренний") {
+                double hx = x_nodes[j] - x_nodes[j - 1];
+                double hy = y_nodes[i] - y_nodes[i - 1];
+                b[idx] = rightFunction(grid[i][j].x, grid[i][j].y);
+                A[idx][idx] = _cu(hx, hy);
+
+                if (j > 0 && grid[i][j - 1].type != "фиктивный") {
+                    A[idx][grid[i][j - 1].index] = _yu(hx);
+                }
+                if (j < grid[i].size() - 1 && grid[i][j + 1].type != "фиктивный") {
+                    A[idx][grid[i][j + 1].index] = _yu(hx);
+                }
+                if (i > 0 && grid[i - 1][j].type != "фиктивный") {
+                    A[idx][grid[i - 1][j].index] = _yu(hy);
+                }
+                if (i < grid.size() - 1 && grid[i + 1][j].type != "фиктивный") {
+                    A[idx][grid[i + 1][j].index] = _yu(hy);
+                }
+            }
+        }
+    }
+}
+
+int main() {
+    std::setlocale(LC_ALL, "Russian");
+
+    // Чтение данных
+    double x_min, x_max, y_min;
+    double y_max;
     int x_steps, y_steps;
     std::vector<BoundaryCondition> boundaryConditions;
     readInputData("input.txt", x_min, x_max, x_steps, y_min, y_max, y_steps, boundaryConditions);
+
+    // Создание полигона
     std::vector<Point> polygon;
     for (const auto& condition : boundaryConditions) {
         polygon.push_back(condition.p1);
         polygon.push_back(condition.p2);
     }
 
+    // Создание сетки и получение x_nodes и y_nodes
     std::vector<std::vector<GridNode>> grid;
     std::vector<double> x_nodes, y_nodes;
     std::tie(grid, x_nodes, y_nodes) = createGrid(x_min, x_max, x_steps, y_min, y_max, y_steps, boundaryConditions, polygon);
 
-    std::vector<double> di, u1, u2, l1, l2, b, x0;
-    buildMatrixAndRightHandSides(grid, x_nodes, y_nodes, di, u1, u2, l1, l2, b, x0);
-    int maxit = 1000;
-    double e = 1e-15, w = 1.1;
-    zeidel(di.size(), grid[0].size(), maxit, e, w, di, u1, u2, l1, l2, b, x0);
+    // Построение 5-ти диагональной матрицы и правой части
+    FiveDiagonalMatrix matrix;
+    std::vector<double> b;
 
-    writeResultsToFile("results.txt", grid, x0, b);
+    // Построение матрицы и правой части
+    std::vector<std::vector<double>> A;
+    buildMatrixAndRightHandSides(grid, x_nodes, y_nodes, A, b);
 
-    printResults(grid, b);
+    // Решение СЛАУ методом Гаусса
+    std::vector<double> x = solveWithGaussianElimination(A, b);
+    writeResultsToFile("results.txt", grid, x, b);
 
-    std::cout << "Решение СЛАУ:" << std::endl;
-    for (int i = 0; i < x0.size(); ++i) {
-        std::cout << "x[" << i << "] = " << x0[i] << std::endl;
-    }
-    std::cout << "Решение Ошибка:" << std::endl;
-    for (int i = 0; i < x0.size(); ++i) {
-        std::cout << "x[" << i << "] = " << x0[i] - b[i] << std::endl;
-    }
 
-	return 0;
+    printResults(grid, matrix, b);
+
+    return 0;
 }
