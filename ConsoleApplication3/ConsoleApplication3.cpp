@@ -5,21 +5,21 @@
 #include <cmath>
 #include <clocale>
 #include <iomanip>
+#include <algorithm>
 
 using namespace std;
 
 const int PRECISION = 6;
-const double GAMMA = 1.0; // Коэффициент для матрицы массы
 
-// Базовые функции для МКЭ
-double default_lambda(double x, double t) { return 1.0 + x * t; }
-double default_f(double x, double t) { return x * t; }
+double default_lambda(double x, double t) { return 1+ x * t; }
+double default_f(double x, double t) { return 1 + x * t; }
+double default_u(double x, double t) { return 1 +  x * t; }
+double default_gamma(double x, double t) { return 1 +  x * t; }
 
 struct BoundaryCondition {
-    double point1;
-    double point2;
-    double value;
-    vector<double> additionalPoints;
+    int node;       // Номер узла
+    double value;   // Значение условия
+    double time;    // Время действия условия (-1 для всех времен)
 };
 
 struct GridData {
@@ -32,16 +32,14 @@ struct GridData {
     vector<BoundaryCondition> boundaryConditions;
     bool isUniformX;
     bool isUniformT;
-
-    double (*lambda)(double, double) = default_lambda;
-    double (*f)(double, double) = default_f;
 };
 
 struct FEMatrix {
     vector<vector<double>> M; // Матрица массы
     vector<vector<double>> G; // Матрица жесткости
-    vector<double> b;         // Вектор нагрузки
     vector<double> solution;  // Вектор решения
+    vector<vector<double>> allF; // Все векторы правой части
+    vector<vector<double>> allSolutions; // Все решения
 };
 
 void generateUniformGrid(vector<double>& points, vector<double>& steps,
@@ -131,20 +129,17 @@ GridData readAndGenerateGrid(const string& filename, bool uniformX, bool uniform
     while (getline(file, line)) {
         istringstream bcStream(line);
         BoundaryCondition bc;
-        bcStream >> bc.point1 >> bc.point2 >> bc.value;
-
-        double point;
-        while (bcStream >> point) bc.additionalPoints.push_back(point);
-
+        bcStream >> bc.node >> bc.value >> bc.time;
         data.boundaryConditions.push_back(bc);
     }
 
     return data;
 }
 
-vector<vector<double>> calculateMassMatrix(double h) {
+vector<vector<double>> calculateMassMatrix(double h, double x, double t) {
     vector<vector<double>> M(2, vector<double>(2));
-    double coef = GAMMA * h / 6.0;
+    double gamma_val = default_gamma(x, t);
+    double coef = gamma_val * h / 6.0;
 
     M[0][0] = 2.0 * coef;
     M[0][1] = 1.0 * coef;
@@ -154,8 +149,10 @@ vector<vector<double>> calculateMassMatrix(double h) {
     return M;
 }
 
-vector<vector<double>> calculateStiffnessMatrix(double lambda1, double lambda2, double h) {
+vector<vector<double>> calculateStiffnessMatrix(double x1, double x2, double t, double h) {
     vector<vector<double>> G(2, vector<double>(2));
+    double lambda1 = default_lambda(x1, t);
+    double lambda2 = default_lambda(x2, t);
     double coef = (lambda1 + lambda2) / (2.0 * h);
 
     G[0][0] = 1.0 * coef;
@@ -166,74 +163,54 @@ vector<vector<double>> calculateStiffnessMatrix(double lambda1, double lambda2, 
     return G;
 }
 
-vector<double> calculateLoadVector(double f1, double f2, double h) {
-    vector<double> b(2);
 
-    b[0] = h * (2.0 * f1 + f2) / 6.0;
-    b[1] = h * (f1 + 2.0 * f2) / 6.0;
+vector<double> calculateLoadVector(double x1, double x2, double t, double h) {
+    vector<double> b(2);
+    double f1 = default_f(x1, t);
+    double f2 = default_f(x2, t);
+
+    b[0] = default_u(x1, t);
+    b[1] = default_u(x2, t);
 
     return b;
 }
 
-// Простое решение системы (для демонстрации)
-vector<double> solveSystem(const vector<vector<double>>& K, const vector<double>& F) {
+
+vector<double> solveSystem(vector<vector<double>>& K, vector<double>& F) {
     int n = F.size();
     vector<double> solution(n, 0.0);
 
-    // Здесь должна быть реальная процедура решения
-    // Для демонстрации просто копируем вектор нагрузки
-    solution = F;
-
+    // Простейший решатель (заглушка)
+    for (int i = 0; i < n; i++) {
+        if (K[i][i] != 0) {
+            solution[i] = F[i] / K[i][i];
+        }
+    }
     return solution;
 }
 
-FEMatrix assembleGlobalSystem(const GridData& grid) {
-    FEMatrix global;
-    int n = grid.xPoints.size();
-
-    global.M.resize(n, vector<double>(n, 0.0));
-    global.G.resize(n, vector<double>(n, 0.0));
-    global.b.resize(n, 0.0);
-
-    // Сборка глобальных матриц
-    for (int i = 0; i < n - 1; i++) {
-        double h = grid.hSteps[i];
-        double x1 = grid.xPoints[i];
-        double x2 = grid.xPoints[i + 1];
-
-        double f1 = grid.f(x1, 0);
-        double f2 = grid.f(x2, 0);
-        double lambda1 = grid.lambda(x1, 0);
-        double lambda2 = grid.lambda(x2, 0);
-
-        auto localM = calculateMassMatrix(h);
-        auto localG = calculateStiffnessMatrix(lambda1, lambda2, h);
-        auto localb = calculateLoadVector(f1, f2, h);
-
-        for (int j = 0; j < 2; j++) {
-            for (int k = 0; k < 2; k++) {
-                global.M[i + j][i + k] += localM[j][k];
-                global.G[i + j][i + k] += localG[j][k];
+void applyBoundaryConditions(vector<vector<double>>& K, vector<double>& F,
+    const vector<BoundaryCondition>& bcs, double currentTime) {
+    for (const auto& bc : bcs) {
+        int node = bc.node;
+        if (bc.time < 0 || fabs(bc.time - currentTime) < 1e-6) {
+            // Обнуляем строку и столбец
+            for (int k = 0; k < K.size(); k++) {
+                K[node][k] = 0.0;
+                K[k][node] = 0.0;
             }
-            global.b[i + j] += localb[j];
+            K[node][node] = 1.0;
+
+            F[node] = bc.value;
+
+            cout << "  Применено граничное условие: q[" << node << "] = "
+                << bc.value << " (время " << currentTime << ")" << endl;
         }
     }
-
-    // Решение системы (K = G + M)
-    vector<vector<double>> K(n, vector<double>(n));
-    for (int i = 0; i < n; i++) {
-        for (int j = 0; j < n; j++) {
-            K[i][j] = global.G[i][j] + global.M[i][j];
-        }
-    }
-
-    global.solution = solveSystem(K, global.b);
-
-    return global;
 }
 
-void printMatrix(const string& name, const vector<vector<double>>& matrix) {
-    cout << "\n" << name << ":\n";
+void printLocalMatrix(const string& name, const vector<vector<double>>& matrix) {
+    cout << name << ":\n";
     for (const auto& row : matrix) {
         for (double val : row) {
             cout << setw(10) << fixed << setprecision(PRECISION) << val << " ";
@@ -242,80 +219,211 @@ void printMatrix(const string& name, const vector<vector<double>>& matrix) {
     }
 }
 
-void printVector(const string& name, const vector<double>& vec) {
-    cout << "\n" << name << ":\n";
+void printLocalVector(const string& name, const vector<double>& vec) {
+    cout << name << ":\n";
     for (double val : vec) {
         cout << fixed << setprecision(PRECISION) << val << endl;
     }
 }
 
-void printLocalMatrices(const GridData& grid, const FEMatrix& fem) {
-    cout << "\n=== ЛОКАЛЬНЫЕ МАТРИЦЫ ===";
-
-    for (int i = 0; i < grid.xPoints.size() - 1; i++) {
-        double h = grid.hSteps[i];
-        double x1 = grid.xPoints[i];
-        double x2 = grid.xPoints[i + 1];
-
-        cout << "\n\nЭлемент " << i + 1 << " (узлы " << i << ";" << i + 1 << "):";
-        cout << "\nДлина: " << h;
-        cout << "\nX1 = " << x1 << ", X2 = " << x2;
-
-        double f1 = grid.f(x1, 0);
-        double f2 = grid.f(x2, 0);
-        double lambda1 = grid.lambda(x1, 0);
-        double lambda2 = grid.lambda(x2, 0);
-
-        auto M = calculateMassMatrix(h);
-        auto G = calculateStiffnessMatrix(lambda1, lambda2, h);
-        auto b = calculateLoadVector(f1, f2, h);
-
-        printMatrix("\nЛокальная матрица массы", M);
-        printMatrix("Локальная матрица жесткости", G);
-        printVector("Локальный вектор нагрузки", b);
-    }
-}
-
-void printGlobalSystem(const FEMatrix& fem) {
-    cout << "\n=== ГЛОБАЛЬНАЯ СИСТЕМА ===";
-
-    // Глобальная матрица системы (K = G + M)
-    vector<vector<double>> K(fem.M.size(), vector<double>(fem.M.size()));
-    for (size_t i = 0; i < fem.M.size(); i++) {
-        for (size_t j = 0; j < fem.M.size(); j++) {
-            K[i][j] = fem.G[i][j] + fem.M[i][j];
+void printGlobalMatrix(const string& name, const vector<vector<double>>& matrix, int showSize = 5) {
+    cout << "\n" << name << " (первые " << showSize << "x" << showSize << " элементов):\n";
+    int size = min(showSize, (int)matrix.size());
+    for (int i = 0; i < size; i++) {
+        for (int j = 0; j < size; j++) {
+            cout << setw(10) << fixed << setprecision(3) << matrix[i][j] << " ";
         }
+        cout << endl;
     }
-
-    printMatrix("\nГлобальная матрица массы", fem.M);
-    printMatrix("Глобальная матрица жесткости", fem.G);
-    printMatrix("Глобальная матрица системы (K = G + M)", K);
-    printVector("Глобальный вектор нагрузки", fem.b);
-    printVector("Вектор решения", fem.solution);
 }
 
+void printGlobalVector(const string& name, const vector<double>& vec, int showSize = 5) {
+    cout << name << " (первые " << showSize << " элементов):\n";
+    int size = min(showSize, (int)vec.size());
+    for (int i = 0; i < size; i++) {
+        cout << vec[i] << " ";
+    }
+    cout << endl;
+}
+
+void printFullVector(const string& name, const vector<double>& vec) {
+    cout << name << " (полный вектор):\n";
+    for (size_t i = 0; i < vec.size(); i++) {
+        cout << "[" << i << "] = " << vec[i] << endl;
+    }
+}
+FEMatrix solveTimeDependentSystem(const GridData& grid, const vector<double>& q0) {
+    FEMatrix global;
+    int n = grid.xPoints.size();
+    int timeSteps = grid.tPoints.size();
+
+    global.M.resize(n, vector<double>(n, 0.0));
+    global.G.resize(n, vector<double>(n, 0.0));
+
+    vector<double> q_prev = q0;
+
+    // Основной временной цикл
+    for (int j = 1; j < timeSteps; j++) {
+        double dt = grid.tauSteps[j - 1];
+        double t = grid.tPoints[j-1]; // Текущее время из сетки
+        double q1 = q_prev[j - 1];
+        double q12 = q_prev[j];
+        cout << "\n\n=== ВРЕМЕННОЙ ШАГ " << j << " ===";
+        cout << "\nВремя t = " << t << ", Δt = " << dt << endl;
+
+        // Обнуляем глобальные матрицы и вектора для текущего шага
+        vector<vector<double>> globalM(n, vector<double>(n, 0.0));
+        vector<vector<double>> globalG(n, vector<double>(n, 0.0));
+        vector<double> b(n, 0.0);
+
+        // Сборка глобальных матриц для текущего времени
+        for (int i = 0; i < n - 1; i++) {
+            double h = grid.hSteps[i];
+            double x1 = grid.xPoints[i];
+            double x2 = grid.xPoints[i + 1];
+
+            // Вычисляем локальные матрицы для текущего времени t
+            auto localM = calculateMassMatrix(h, x1, t);
+            auto localG = calculateStiffnessMatrix(x1, x2, t, h);
+            auto localb = calculateLoadVector(x1, x2, t, h);
+
+            cout << "\nЭлемент " << i + 1 << " (узлы " << i << "-" << i + 1 << "):";
+            cout << "\nДлина h = " << h << ", X1 = " << x1 << ", X2 = " << x2;
+            printLocalMatrix("\nЛокальная матрица массы:", localM);
+            printLocalMatrix("Локальная матрица жесткости:", localG);
+            printLocalVector("Локальный вектор нагрузки:", localb);
+
+            // Добавляем в глобальные матрицы
+            for (int k = 0; k < 2; k++) {
+                for (int m = 0; m < 2; m++) {
+                    globalM[i + k][i + m] += localM[k][m];
+                    globalG[i + k][i + m] += localG[k][m];
+                }
+                b[i + k] += localb[k];
+            }
+        }
+
+        printGlobalMatrix("\nГлобальная матрица массы:", globalM);
+        printGlobalMatrix("Глобальная матрица жесткости:", globalG);
+        printGlobalVector("\nГлобальный вектор нагрузки:", b);
+
+        // Формируем систему уравнений
+        vector<vector<double>> K(n, vector<double>(n));
+        vector<double> F(n);
+
+        for (int i = 0; i < n; i++) {
+            for (int k = 0; k < n; k++) {
+                K[i][k] = (1.0 / dt) * globalM[i][k] + globalG[i][k];
+            }
+            F[i] = b[i];
+            for (int k = 0; k < n; k++) {
+                F[i] += (1.0 / dt) * globalM[i][k] * q_prev[k];
+            }
+        }
+
+        global.allF.push_back(F);
+
+        printGlobalMatrix("\nМатрица системы K:", K);
+        printFullVector("Полный вектор правой части F:", F);
+
+        applyBoundaryConditions(K, F, grid.boundaryConditions, t);
+
+        vector<double> q = solveSystem(K, F);
+        q_prev = q;
+        global.allSolutions.push_back(q);
+
+        cout << "\nРешение на шаге " << j << ":";
+        printFullVector("Вектор решения q:", q);
+    }
+
+    global.solution = q_prev;
+    return global;
+}
 int main() {
     setlocale(LC_ALL, "Russian");
 
     string filename = "input.txt";
-    bool uniformX = false;
+    bool uniformX = true;
     bool uniformT = true;
 
+    cout << "=== МЕТОД КОНЕЧНЫХ ЭЛЕМЕНТОВ ДЛЯ ВРЕМЕННОЙ ЗАДАЧИ ===" << endl;
     cout << "Чтение данных и генерация сетки...\n";
     GridData grid = readAndGenerateGrid(filename, uniformX, uniformT);
 
-    cout << "\n=== ПАРАМЕТРЫ СЕТКИ ===";
-    cout << "\nКоличество точек по X: " << grid.xPoints.size();
-    cout << "\nКоличество точек по T: " << grid.tPoints.size();
-    cout << "\nТип сетки X: " << (grid.isUniformX ? "РАВНОМЕРНАЯ" : "НЕРАВНОМЕРНАЯ");
-    cout << "\nТип сетки T: " << (grid.isUniformT ? "РАВНОМЕРНАЯ" : "НЕРАВНОМЕРНАЯ") << endl;
+    cout << "\n=== ПАРАМЕТРЫ СЕТКИ ===" << endl;
+    cout << "Пространственная сетка (X): " << grid.xPoints.size() << " узлов, "
+        << (grid.isUniformX ? "равномерная" : "неравномерная") << endl;
+    cout << "Временная сетка (T): " << grid.tPoints.size() << " шагов, "
+        << (grid.isUniformT ? "равномерная" : "неравномерная") << endl;
+    cout << "Граничные условий: " << grid.boundaryConditions.size() << endl;
 
-    cout << "\nРасчет МКЭ системы...";
-    FEMatrix fem = assembleGlobalSystem(grid);
+    // Задание начального условия q0
+    vector<double> q0(grid.xPoints.size(), 0.0);
+    cout << "\n=== ЗАДАНИЕ НАЧАЛЬНОГО УСЛОВИЯ ===" << endl;
+    cout << "Выберите способ задания q0:\n"
+        << "1. Константное значение для всех узлов\n"
+        << "2. Линейное распределение\n"
+        << "3. Вручную для каждого узла\n"
+        << "Ваш выбор: ";
 
-    // Вывод всех результатов
-    printLocalMatrices(grid, fem);
-    printGlobalSystem(fem);
+    int choice;
+    cin >> choice;
 
+    switch (choice) {
+    case 1: {
+        double value;
+        cout << "Введите значение для всех узлов: ";
+        cin >> value;
+        fill(q0.begin(), q0.end(), value);
+        break;
+    }
+    case 2: {
+        double q_start, q_end;
+        cout << "Введите значение в первом узле: ";
+        cin >> q_start;
+        cout << "Введите значение в последнем узле: ";
+        cin >> q_end;
+        for (size_t i = 0; i < q0.size(); i++) {
+            double t = static_cast<double>(i) / (q0.size() - 1);
+            q0[i] = q_start + t * (q_end - q_start);
+        }
+        break;
+    }
+    case 3: {
+        cout << "Введите значения для каждого узла:" << endl;
+        for (size_t i = 0; i < q0.size(); i++) {
+            cout << "Узел " << i << " (x=" << grid.xPoints[i] << "): ";
+            cin >> q0[i];
+        }
+        break;
+    }
+    default:
+        cout << "Неверный выбор, используется q0 = 0" << endl;
+    }
+
+    cout << "\n=== НАЧАЛЬНОЕ УСЛОВИЕ q0 ===" << endl;
+    printFullVector("Вектор q0:", q0);
+
+    cout << "\n=== НАЧАЛО РАСЧЕТА ===" << endl;
+    FEMatrix fem = solveTimeDependentSystem(grid, q0);
+
+    cout << "\n=== ИТОГОВОЕ РЕШЕНИЕ ===" << endl;
+    printFullVector("Финальное решение:", fem.solution);
+
+    // Вывод всех правых частей
+    cout << "\n=== ВЕКТОРЫ ПРАВОЙ ЧАСТИ НА КАЖДОМ ШАГЕ ===" << endl;
+    for (size_t i = 0; i < fem.allF.size(); i++) {
+        cout << "\nШаг " << i + 1 << " (t = " << grid.tPoints[i + 1] << "):";
+        printFullVector("Вектор F:", fem.allF[i]);
+    }
+
+    // Вывод всех решений
+    cout << "\n=== РЕШЕНИЯ НА КАЖДОМ ШАГЕ ===" << endl;
+    for (size_t i = 0; i < fem.allSolutions.size(); i++) {
+        cout << "\nШаг " << i + 1 << " (t = " << grid.tPoints[i + 1] << "):";
+        printFullVector("Решение q:", fem.allSolutions[i]);
+    }
+
+    cout << "\n=== РАСЧЕТ ЗАВЕРШЕН ===" << endl;
     return 0;
 }
